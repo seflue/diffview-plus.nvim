@@ -14,6 +14,7 @@ local File = lazy.access("diffview.vcs.file", "File") ---@type vcs.File|LazyModu
 local RevType = lazy.access("diffview.vcs.rev", "RevType") ---@type RevType|LazyModule
 local StandardView = lazy.access("diffview.scene.views.standard.standard_view", "StandardView") ---@type StandardView|LazyModule
 local config = lazy.require("diffview.config") ---@module "diffview.config"
+local line_map = lazy.require("diffview.line_map") ---@module "diffview.line_map"
 local utils = lazy.require("diffview.utils") ---@module "diffview.utils"
 
 local api = vim.api
@@ -208,6 +209,162 @@ function FileHistoryView:prev_item()
     end
   end
 end
+
+---The file `entry` carries at `path`, under that name or the one it was renamed
+---from, or nil when that commit leaves the path alone and so cannot have changed
+---the code under the cursor. `pick_entry_target`
+---answers with `entry.files[1]`, which is the wrong file as soon as a commit
+---touches more than one, so the walk resolves by path instead.
+---
+---Two modes keep their own answer. `pin_local` already resolves by path, via an
+---overlay when the commit lacks the file. Single-file history follows one
+---logical file across renames, so its lone `FileEntry` is the right target
+---whatever its path -- the same reasoning `_resolve_pinned_target` applies.
+---@param self FileHistoryView
+---@param entry LogEntry
+---@param path string
+---@return FileEntry?
+local function pick_change_here_target(self, entry, path)
+  if self.pin_local then
+    return self:pick_entry_target(entry)
+  end
+
+  if entry.single_file then
+    return entry.files[1]
+  end
+
+  for _, f in ipairs(entry.files) do
+    -- `oldpath` is the other half of the answer. A rename splits the history in
+    -- two: commits older than it list the file under its old name, newer ones
+    -- under the new one, and only the renaming commit carries both. Matching on
+    -- `path` alone loses the file at that seam and then skips every commit past
+    -- it, which reads to the caller as a history where nothing changes the line.
+    if f.path == path or f.oldpath == path then
+      return f
+    end
+  end
+end
+
+---Walk the history until a commit changes the code under the cursor, then open
+---that commit. Reading each revision's content is enough to decide, so the
+---commits in between are never opened.
+---@param self FileHistoryView
+---@param dir integer # `1` walks toward the older commits, `-1` toward the newer.
+FileHistoryView.select_change_here = async.void(function(self, dir)
+  local cur_entry, cur_file = self.panel.cur_item[1], self.panel.cur_item[2]
+  if not (cur_entry and cur_file) then
+    return
+  end
+
+  local idx = utils.vec_indexof(self.panel.entries, cur_entry)
+  local win = self.cur_layout and self.cur_layout:get_main_win()
+  if idx == -1 or not (win and win.id and api.nvim_win_is_valid(win.id)) then
+    return
+  end
+
+  local lnum = api.nvim_win_get_cursor(win.id)[1]
+  local lines = api.nvim_buf_get_lines(api.nvim_win_get_buf(win.id), 0, -1, false)
+  local found
+  -- The newer commit of any neighbouring pair owns the difference between
+  -- them, so walking toward the older commits the answer is the entry read
+  -- before this one: `lines` is its content, and `lnum` the cursor in it.
+  local prev
+  -- The panel appends entries as the history loads, so running out of them
+  -- means the end of the history only once it has stopped.
+  local still_loading = false
+
+  while true do
+    idx = idx + dir
+    local entry = self.panel.entries[idx]
+    if not entry then
+      still_loading = self.panel.updating
+      break
+    end
+
+    -- A commit that leaves the path alone cannot have changed the code under
+    -- the cursor, so it is passed over without reading a revision at all.
+    local candidate = pick_change_here_target(self, entry, cur_file.path)
+
+    if candidate then
+      local file = candidate:main_file()
+
+      -- A rename read from the new name toward the old one: the candidate
+      -- still sits at the path under the cursor, and only `oldpath` says the
+      -- line is about to mean something else.
+      local renamed = candidate.oldpath ~= nil and candidate.oldpath ~= candidate.path
+
+      -- Nothing to compare against. The cursor's line means something else
+      -- under another path -- a rename, reached from either side, since a
+      -- commit that merely skips the path never becomes a candidate -- and a
+      -- binary or unreadable revision has no lines at all. Open it and let the
+      -- reader judge.
+      if not file or file.binary or candidate.path ~= cur_file.path or renamed then
+        found = candidate
+        break
+      end
+
+      local err, next_lines = await(file.adapter:show(file.path, file.rev))
+      if err or not next_lines then
+        found = candidate
+        break
+      end
+
+      local touched
+      local before = lnum
+      lnum, touched = line_map.between(lines, next_lines, lnum)
+      lines = next_lines
+
+      -- Walking toward the newer commits the difference belongs to the
+      -- candidate itself. Walking toward the older ones it belongs to the
+      -- entry the walk read before it, and on the first step that entry is
+      -- the one already open: the reader asked for the next commit that
+      -- changes the line, not the one they are looking at, so the walk
+      -- carries on.
+      local target, target_lnum
+      if touched then
+        if dir < 0 then
+          target, target_lnum = candidate, lnum
+        elseif prev then
+          target, target_lnum = prev, before
+        end
+      end
+
+      if target then
+        found = target
+
+        -- The walk mapped the cursor through every revision it passed, so it
+        -- holds a line the carry cannot re-derive: left to itself the carry
+        -- diffs the starting revision straight against this one, and across a
+        -- skip of several commits that single diff has no way to tell a moved
+        -- body from a deleted one -- it reads the cursor's line as deleted and
+        -- drops the cursor above the hunk. Hand the walked line over.
+        --
+        -- Only this branch has one. The breaks above leave `lnum` pointing
+        -- into the text of some earlier revision.
+        self:set_carry_lnum(target, target_lnum)
+        break
+      end
+
+      prev = candidate
+    end
+  end
+
+  -- `adapter:show` resumes us in its job's `on_exit`, which is a fast event
+  -- context. Everything below touches the API.
+  await(async.scheduler())
+
+  -- Nothing ahead changes this line, so the reader stays where they are rather
+  -- than being dropped at the far end of the history.
+  if not found then
+    utils.info(
+      still_loading and "The history is still loading. Nothing read so far changes this line."
+        or "No further commit changes this line."
+    )
+    return
+  end
+
+  await(self:set_file(found))
+end)
 
 ---@param self FileHistoryView
 ---@param file FileEntry

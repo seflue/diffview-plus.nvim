@@ -98,6 +98,14 @@ function FileEntry:init(opt)
   self._extra_owned = opt._extra_owned or {}
 end
 
+---The `File` this entry's main window shows, without opening the entry. Nil
+---while the layout has no main window bound.
+---@return vcs.File?
+function FileEntry:main_file()
+  local win = self.layout and self.layout:get_main_win()
+  return win and win.file or nil
+end
+
 ---Destroy owned Files. `force` still drops COMMIT/STAGE/CUSTOM buffers
 ---unconditionally, but LOCAL buffers stay guarded by `is_buf_in_use`: they
 ---represent the user's real file buffer and may be visible in windows
