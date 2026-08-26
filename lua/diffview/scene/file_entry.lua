@@ -98,6 +98,14 @@ function FileEntry:init(opt)
   self._extra_owned = opt._extra_owned or {}
 end
 
+---The `File` this entry's main window shows, without opening the entry. Nil
+---while the layout has no main window bound.
+---@return vcs.File?
+function FileEntry:main_file()
+  local win = self.layout and self.layout:get_main_win()
+  return win and win.file or nil
+end
+
 ---@param force? boolean
 function FileEntry:destroy(force)
   for _, f in ipairs(self.layout:owned_files()) do

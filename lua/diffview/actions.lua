@@ -65,6 +65,8 @@ local pl = lazy.access(utils, "path") --[[@as PathLib ]]
 ---@field select_last_entry fun()
 ---@field select_next_commit fun()
 ---@field select_prev_commit fun()
+---@field select_next_change_here fun()
+---@field select_prev_change_here fun()
 ---@field stage_all fun()
 ---@field toggle_files fun()
 ---@field toggle_flatten_dirs fun()
@@ -1264,6 +1266,8 @@ local action_names = {
   "select_last_entry",
   "select_next_commit",
   "select_prev_commit",
+  "select_next_change_here",
+  "select_prev_change_here",
   "stage_all",
   "toggle_files",
   "toggle_flatten_dirs",

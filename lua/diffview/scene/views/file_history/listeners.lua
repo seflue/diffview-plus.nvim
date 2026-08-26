@@ -161,6 +161,12 @@ return function(view)
       -- See `select_first_entry` for the pin_local rationale.
       view:set_file(view:pick_entry_target(next_entry) or next_entry.files[1])
     end,
+    select_next_change_here = function()
+      view:select_change_here(1)
+    end,
+    select_prev_change_here = function()
+      view:select_change_here(-1)
+    end,
     ---Navigate to next file within the current commit.
     next_entry_in_commit = function()
       local cur_entry = view.panel.cur_item[1]

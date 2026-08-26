@@ -1,5 +1,6 @@
 local helpers = require("diffview.tests.helpers")
 local StandardView = require("diffview.scene.views.standard.standard_view").StandardView
+local line_map = require("diffview.line_map")
 
 local api = vim.api
 local eq = helpers.eq
@@ -45,37 +46,97 @@ local function make_view(a_win, b_win)
   }, { __index = StandardView })
 end
 
-describe("diffview.standard_view _map_lnum", function()
+describe("diffview.line_map map", function()
   it("leaves a line preceding every hunk untouched", function()
-    eq(3, StandardView._map_lnum({ { 10, 0, 11, 5 } }, 3))
+    eq(3, line_map.map({ { 10, 0, 11, 5 } }, 3))
   end)
 
   it("shifts a line following an insertion by the inserted count", function()
-    eq(35, StandardView._map_lnum({ { 0, 0, 1, 30 } }, 5))
+    eq(35, line_map.map({ { 0, 0, 1, 30 } }, 5))
   end)
 
   it("shifts a line following a deletion back by the deleted count", function()
-    eq(5, StandardView._map_lnum({ { 1, 30, 0, 0 } }, 35))
+    eq(5, line_map.map({ { 1, 30, 0, 0 } }, 35))
   end)
 
   it("maps a line inside a changed hunk to the hunk start on the new side", function()
-    eq(12, StandardView._map_lnum({ { 10, 4, 12, 6 } }, 11))
+    eq(12, line_map.map({ { 10, 4, 12, 6 } }, 11))
   end)
 
   it("maps a line inside a deleted hunk to the last surviving line before it", function()
-    eq(4, StandardView._map_lnum({ { 5, 3, 4, 0 } }, 6))
+    eq(4, line_map.map({ { 5, 3, 4, 0 } }, 6))
   end)
 
   it("accumulates deltas across several preceding hunks", function()
-    eq(14, StandardView._map_lnum({ { 0, 0, 1, 3 }, { 5, 4, 9, 2 } }, 13))
+    eq(14, line_map.map({ { 0, 0, 1, 3 }, { 5, 4, 9, 2 } }, 13))
+  end)
+
+  it("reports a line inside a changed hunk as touched", function()
+    local _, touched = line_map.map({ { 10, 4, 12, 6 } }, 11)
+    assert.is_true(touched)
+  end)
+
+  it("reports a line merely shifted by a hunk as untouched", function()
+    local _, touched = line_map.map({ { 0, 0, 1, 30 } }, 5)
+    assert.is_false(touched)
+  end)
+
+  it("reports a line inside a deleted hunk as touched", function()
+    local _, touched = line_map.map({ { 5, 3, 4, 0 } }, 6)
+    assert.is_true(touched)
+  end)
+
+  it("reports a line preceding every hunk as untouched", function()
+    local _, touched = line_map.map({ { 10, 0, 11, 5 } }, 3)
+    assert.is_false(touched)
   end)
 
   it("returns the line unchanged for an empty diff", function()
-    eq(7, StandardView._map_lnum({}, 7))
+    eq(7, line_map.map({}, 7))
   end)
 
   it("never returns a line below 1", function()
-    eq(1, StandardView._map_lnum({ { 1, 3, 0, 0 } }, 2))
+    eq(1, line_map.map({ { 1, 3, 0, 0 } }, 2))
+  end)
+end)
+
+describe("diffview.line_map between", function()
+  it("reports a line the next revision rewrote as touched", function()
+    local from = body("body", 20)
+    local to = body("body", 20)
+    to[5] = "body 5 rewritten"
+
+    local lnum, touched = line_map.between(from, to, 5)
+
+    eq(5, lnum)
+    assert.is_true(touched)
+  end)
+
+  it("reports a line the next revision only shifted as untouched", function()
+    local from = body("body", 20)
+    local to = vim.list_extend(body("head", 30), body("body", 20))
+
+    local lnum, touched = line_map.between(from, to, 5)
+
+    eq(35, lnum)
+    assert.is_false(touched)
+  end)
+
+  it("reports a line the next revision deleted as touched", function()
+    local from = body("body", 20)
+    local to = vim.list_slice(body("body", 20), 1, 10)
+
+    local lnum, touched = line_map.between(from, to, 15)
+
+    eq(10, lnum)
+    assert.is_true(touched)
+  end)
+
+  it("reports every line of an unchanged revision as untouched", function()
+    local lnum, touched = line_map.between(body("body", 20), body("body", 20), 12)
+
+    eq(12, lnum)
+    assert.is_false(touched)
   end)
 end)
 

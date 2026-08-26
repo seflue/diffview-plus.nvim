@@ -2052,6 +2052,26 @@ select_last_entry                               *diffview-actions-select_last_en
 
         Select the commit preceding the subject.
 
+select_next_change_here              *diffview-actions-select_next_change_here*
+        Contexts: `file_history_view`, `file_history_panel`
+
+        Open the next older commit that changes the code under the cursor.
+        Commits that touch the file somewhere else are skipped, and are not
+        opened on the way: only the revision's content is read. See
+        |diffview-cursor-carry| for how the line is followed.
+
+        In a history spanning several files, commits that leave the file alone
+        are skipped too, and a commit that touches it alongside others is read
+        at that file rather than at whichever one it lists first.
+
+        If no older commit changes the line, the view does not move.
+
+select_prev_change_here              *diffview-actions-select_prev_change_here*
+        Contexts: `file_history_view`, `file_history_panel`
+
+        As |diffview-actions-select_next_change_here|, stepping toward the
+        newer commits.
+
 stage_all                                       *diffview-actions-stage_all*
         Contexts: `diff_view`, `file_panel`
 
@@ -2133,8 +2153,10 @@ Cursor carry ~
 When a step lands on another revision of the file you are already reading, the
 cursor stays on the same line of code rather than the same line number.
 Diffview diffs the arriving buffer against the one you are leaving, then maps
-your cursor line through the result. This covers the entry and commit actions
-alike:
+your cursor line through the result.
+
+This applies to every swap between files, however you reached it -- a row in
+the file panel, |diffview-actions-goto_file|, or the entry and commit actions:
 
         • |diffview-actions-select_next_entry|
         • |diffview-actions-select_prev_entry|
@@ -2144,6 +2166,13 @@ alike:
 A line inside a hunk the step introduces has no single counterpart. It lands
 on that hunk's first line, or on the last surviving line before it when the
 hunk only deletes.
+
+That same distinction answers whether a commit changed the code you are
+reading, which is what |diffview-actions-select_next_change_here| walks on.
+Those two actions do not diff the endpoints of their skip: they map the cursor
+through every revision they pass, and land on the line that walk arrives at.
+Over a run of commits that only shift the code, an endpoint diff has no way to
+tell a moved block from a deleted one.
 
                                                 *diffview-unused-actions*
 Unused actions ~
@@ -2157,6 +2186,8 @@ actions:
         • |diffview-actions-goto_file_edit|
         • |diffview-actions-goto_file_edit_close|
         • |diffview-actions-jumpto_conflict|
+        • |diffview-actions-select_next_change_here|
+        • |diffview-actions-select_prev_change_here|
         • |diffview-actions-view_windo|
 
 ==============================================================================
