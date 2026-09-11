@@ -477,15 +477,17 @@ describe("select_change_here across identical bodies", function()
   end)
 end)
 
--- A multi-file history in which the file under the cursor is renamed partway
--- through. Commits older than the rename list the old path and newer ones the
--- new path, so a walk that matches on one name alone goes blind at the rename
--- and runs off the end of the history.
+-- A history in which the file under the cursor is renamed partway through.
+-- Commits older than the rename list the old path and newer ones the new path,
+-- so a walk that matches on one name alone goes blind at the rename and runs
+-- off the end of the history. The rename itself touches no line, so a walk
+-- that crosses it has to pass it over like any other commit that leaves the
+-- line alone.
 --
---   n1  a_other.txt + keep.txt            body 1..20        (20 lines)
---   n2  a_other.txt + keep.txt            body 5 rewritten  (20)
---   n3  a_other.txt + keep.txt -> moved.txt  pure rename    (20)
---   n4  a_other.txt + moved.txt           head 1..10        (30)
+--   n1  a_other.txt + keep.txt            body 1..20                   (20 lines)
+--   n2  a_other.txt + keep.txt            body 5 rewritten             (20)
+--   n3  a_other.txt + keep.txt -> moved.txt  pure rename               (20)
+--   n4  a_other.txt + moved.txt           head 1..10, body 12 rewritten (30)
 local function make_rename_repo()
   local repo = helpers.init_repo()
   local lines = body("body", 20)
@@ -504,6 +506,7 @@ local function make_rename_repo()
   commit(repo, "n3")
 
   lines = vim.list_extend(body("head", 10), lines)
+  lines[22] = "body 12 rewritten"
   write(repo, "moved.txt", lines)
   commit(repo, "n4")
 
@@ -533,9 +536,10 @@ describe("select_change_here across a rename", function()
     return view.cur_layout:get_main_win().id
   end
 
-  ---Open the unfiltered history and wait for n4.
-  local function open_history()
-    view = lib.file_history(nil, {})
+  ---Open the history and wait for n4.
+  ---@param paths string[]? # Path filter. Defaults to the whole repo.
+  local function open_history(paths)
+    view = lib.file_history(nil, paths or {})
     assert.is_not_nil(view)
     view:open()
 
@@ -592,7 +596,7 @@ describe("select_change_here across a rename", function()
     return main
   end
 
-  it("stops on the rename walking toward the older commits", function()
+  it("crosses the rename walking toward the older commits", function()
     open_history()
     -- n4's prepend is the only thing between the cursor and the rename, and it
     -- leaves the line's text alone.
@@ -600,22 +604,36 @@ describe("select_change_here across a rename", function()
 
     view:select_change_here(1)
 
-    -- n3 renames the file without touching a line of it. The cursor's line
-    -- means something else under another path, so the walk opens n3 rather
-    -- than reading past it -- and everything older lists `keep.txt`, which a
-    -- walk matching on `moved.txt` alone would skip all the way off the end.
-    wait_for(2, "moved.txt", 20)
+    -- n3 renames the file without touching a line of it, so it is passed over
+    -- like any other commit that leaves the line alone. Everything older lists
+    -- `keep.txt`, which the walk has to follow the file to: n2 is where the
+    -- line was rewritten, and reading n1 is what tells.
+    wait_for(3, "keep.txt", 20)
     eq("body 5 rewritten", line_at(main_win()))
   end)
 
-  it("stops on the rename walking toward the newer commits", function()
+  it("crosses the rename walking toward the newer commits", function()
     open_history()
-    go_to(3, "keep.txt", "body 12", 20)
+    go_to(4, "keep.txt", "body 12", 20)
 
     view:select_change_here(-1)
 
     -- Same rename from the other side: n3 lists the file under its new name,
-    -- so only `oldpath` connects it to the `keep.txt` under the cursor.
-    wait_for(2, "moved.txt", 20)
+    -- so only `oldpath` connects it to the `keep.txt` under the cursor, and
+    -- past it the file goes by `moved.txt`. n4 is where the line changed.
+    wait_for(1, "moved.txt", 30)
+    eq("body 12 rewritten", line_at(main_win()))
+  end)
+
+  it("crosses the rename in a single-file history", function()
+    -- `--follow` lists n2 and n1 under `keep.txt` even though the history was
+    -- asked for `moved.txt`.
+    open_history({ "moved.txt" })
+    go_to(1, "moved.txt", "body 5 rewritten", 30)
+
+    view:select_change_here(1)
+
+    wait_for(3, "keep.txt", 20)
+    eq("body 5 rewritten", line_at(main_win()))
   end)
 end)

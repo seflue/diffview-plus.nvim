@@ -272,6 +272,8 @@ FileHistoryView.select_change_here = async.void(function(self, dir)
   -- The panel appends entries as the history loads, so running out of them
   -- means the end of the history only once it has stopped.
   local still_loading = false
+  -- The name the file goes by in the entries ahead. A rename changes it.
+  local path = cur_file.path
 
   while true do
     idx = idx + dir
@@ -283,22 +285,14 @@ FileHistoryView.select_change_here = async.void(function(self, dir)
 
     -- A commit that leaves the path alone cannot have changed the code under
     -- the cursor, so it is passed over without reading a revision at all.
-    local candidate = pick_change_here_target(self, entry, cur_file.path)
+    local candidate = pick_change_here_target(self, entry, path)
 
     if candidate then
       local file = candidate:main_file()
 
-      -- A rename read from the new name toward the old one: the candidate
-      -- still sits at the path under the cursor, and only `oldpath` says the
-      -- line is about to mean something else.
-      local renamed = candidate.oldpath ~= nil and candidate.oldpath ~= candidate.path
-
-      -- Nothing to compare against. The cursor's line means something else
-      -- under another path -- a rename, reached from either side, since a
-      -- commit that merely skips the path never becomes a candidate -- and a
-      -- binary or unreadable revision has no lines at all. Open it and let the
-      -- reader judge.
-      if not file or file.binary or candidate.path ~= cur_file.path or renamed then
+      -- Nothing to compare against: a binary or unreadable revision has no
+      -- lines. Open it and let the reader judge.
+      if not file or file.binary then
         found = candidate
         break
       end
@@ -313,6 +307,14 @@ FileHistoryView.select_change_here = async.void(function(self, dir)
       local before = lnum
       lnum, touched = line_map.between(lines, next_lines, lnum)
       lines = next_lines
+
+      -- A rename lists the file under both names, and the entries beyond it in
+      -- this direction use only one of them: the older ones the old name, the
+      -- newer ones the new one. The content was read under the name the
+      -- candidate itself uses, so the rename is judged like any other commit.
+      if candidate.oldpath and candidate.oldpath ~= candidate.path then
+        path = dir > 0 and candidate.oldpath or candidate.path
+      end
 
       -- Walking toward the newer commits the difference belongs to the
       -- candidate itself. Walking toward the older ones it belongs to the
