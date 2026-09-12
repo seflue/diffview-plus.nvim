@@ -239,7 +239,9 @@ local function pick_change_here_target(self, entry, path)
     -- under the new one, and only the renaming commit carries both. Matching on
     -- `path` alone loses the file at that seam and then skips every commit past
     -- it, which reads to the caller as a history where nothing changes the line.
-    if f.path == path or f.oldpath == path then
+    -- `oldpath` also names the source of a copy (status `C`), which is another
+    -- file, so that pairing is not followed.
+    if f.path == path or (f.oldpath == path and f.status ~= "C") then
       return f
     end
   end
@@ -298,6 +300,7 @@ FileHistoryView.select_change_here = async.void(function(self, dir)
       end
 
       local err, next_lines = await(file.adapter:show(file.path, file.rev))
+
       if err or not next_lines then
         found = candidate
         break
@@ -312,7 +315,7 @@ FileHistoryView.select_change_here = async.void(function(self, dir)
       -- this direction use only one of them: the older ones the old name, the
       -- newer ones the new one. The content was read under the name the
       -- candidate itself uses, so the rename is judged like any other commit.
-      if candidate.oldpath and candidate.oldpath ~= candidate.path then
+      if candidate.oldpath and candidate.oldpath ~= candidate.path and candidate.status ~= "C" then
         path = dir > 0 and candidate.oldpath or candidate.path
       end
 

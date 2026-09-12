@@ -637,3 +637,103 @@ describe("select_change_here across a rename", function()
     eq("body 5 rewritten", line_at(main_win()))
   end)
 end)
+
+-- A copy carries `oldpath` too, naming the file it was copied from. Git only
+-- reports copies when asked, and only for sources modified in the same commit,
+-- so `keep.txt` changes as it is copied. `copy.txt` sorts first, so a walk that
+-- takes `oldpath` at face value picks the copy and loses the original.
+--
+--   p1  keep.txt                       body 1..20         (20 lines)
+--   p2  keep.txt -> copy.txt (C100)    copy of p1's text  (20)
+--       keep.txt                       body 12 rewritten  (20)
+local function make_copy_repo()
+  local repo = helpers.init_repo()
+  helpers.run({ "git", "config", "diff.renames", "copies" }, repo)
+  local lines = body("body", 20)
+
+  write(repo, "keep.txt", lines)
+  commit(repo, "p1")
+
+  write(repo, "copy.txt", lines)
+  lines[12] = "body 12 rewritten"
+  write(repo, "keep.txt", lines)
+  commit(repo, "p2")
+
+  return repo
+end
+
+describe("select_change_here across a copy", function()
+  local repo, cwd, view, original_config
+
+  before_each(function()
+    original_config = vim.deepcopy(config.get_config())
+    config.get_config().use_icons = false
+    repo = make_copy_repo()
+    cwd = vim.fn.getcwd()
+    vim.cmd("cd " .. vim.fn.fnameescape(repo))
+  end)
+
+  after_each(function()
+    vim.cmd("cd " .. vim.fn.fnameescape(cwd))
+    helpers.close_view(view)
+    view = nil
+    helpers.cleanup_repo(repo)
+    config.setup(original_config)
+  end)
+
+  local function main_win()
+    return view.cur_layout:get_main_win().id
+  end
+
+  it("stays with the original rather than following the copy", function()
+    view = lib.file_history(nil, {})
+    assert.is_not_nil(view)
+    view:open()
+
+    assert.is_true(
+      vim.wait(10000, function()
+        return view.ready and #view.panel.entries >= 2 and view.cur_layout ~= nil
+      end),
+      "view never became ready"
+    )
+
+    -- The fixture only holds if git reported the copy as one.
+    local copy
+    for _, f in ipairs(view.panel.entries[1].files) do
+      if f.path == "copy.txt" then
+        copy = f
+      end
+    end
+    eq("C", assert(copy).status)
+    eq("keep.txt", copy.oldpath)
+
+    -- Open p1 with the cursor on the line p2 rewrites in `keep.txt`.
+    view:set_file(view.panel.entries[2].files[1])
+    assert.is_true(
+      vim.wait(20000, function()
+        return view.panel.cur_item[1] == view.panel.entries[2]
+          and api.nvim_buf_line_count(api.nvim_win_get_buf(main_win())) == 20
+      end),
+      "p1 never opened"
+    )
+    vim.wait(200)
+    local main = main_win()
+    api.nvim_set_current_win(main)
+    api.nvim_win_set_cursor(main, { 12, 0 })
+    eq("body 12", line_at(main))
+
+    view:select_change_here(-1)
+
+    -- p2 lists `copy.txt` first, with `oldpath` naming `keep.txt`. The copy
+    -- still reads `body 12`; the rewrite happened in `keep.txt`.
+    assert.is_true(
+      vim.wait(20000, function()
+        return view.panel.cur_item[1] == view.panel.entries[1]
+          and view.panel.cur_item[2].path == "keep.txt"
+      end),
+      "the walk never came to rest on keep.txt in p2"
+    )
+    vim.wait(200)
+    eq("body 12 rewritten", line_at(main_win()))
+  end)
+end)
