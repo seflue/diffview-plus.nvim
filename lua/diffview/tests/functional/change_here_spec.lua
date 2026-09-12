@@ -530,10 +530,11 @@ end)
 -- so a walk that matches on one name alone goes blind at the rename and runs
 -- off the end of the history. The rename itself touches no line, so a walk
 -- that crosses it has to pass it over like any other commit that leaves the
--- line alone.
+-- line alone. n2 rewrites a line above the one walked to, so the tests can
+-- tell the walked line from the first change.
 --
 --   n1  a_other.txt + keep.txt            body 1..20                   (20 lines)
---   n2  a_other.txt + keep.txt            body 5 rewritten             (20)
+--   n2  a_other.txt + keep.txt            body 2 and 5 rewritten       (20)
 --   n3  a_other.txt + keep.txt -> moved.txt  pure rename               (20)
 --   n4  a_other.txt + moved.txt           head 1..10, body 12 rewritten (30)
 local function make_rename_repo()
@@ -544,6 +545,7 @@ local function make_rename_repo()
   write(repo, "keep.txt", lines)
   commit(repo, "n1")
 
+  lines[2] = "body 2 rewritten"
   lines[5] = "body 5 rewritten"
   write(repo, "a_other.txt", body("other", 12))
   write(repo, "keep.txt", lines)
