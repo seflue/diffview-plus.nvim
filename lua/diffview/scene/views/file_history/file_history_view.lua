@@ -271,8 +271,9 @@ FileHistoryView.select_change_here = async.void(function(self, dir)
   -- them, so walking toward the older commits the answer is the entry read
   -- before this one: `lines` is its content, and `lnum` the cursor in it.
   local prev
-  -- The panel appends entries as the history loads, so running out of them
-  -- means the end of the history only once it has stopped.
+  -- The panel appends older entries as the history loads, so running out of
+  -- them in that direction means the end of the history only once it has
+  -- stopped. The newest entry is in place from the start.
   local still_loading = false
   -- The name the file goes by in the entries ahead. A rename changes it.
   local path = cur_file.path
@@ -281,7 +282,7 @@ FileHistoryView.select_change_here = async.void(function(self, dir)
     idx = idx + dir
     local entry = self.panel.entries[idx]
     if not entry then
-      still_loading = self.panel.updating
+      still_loading = dir > 0 and self.panel.updating
       break
     end
 

@@ -195,6 +195,30 @@ describe("select_change_here", function()
     eq("body 12", line_at(main))
   end)
 
+  it("reports the end of the history walking toward the newer commits, even mid-load", function()
+    local main = open_on("body 12")
+    local utils = require("diffview.utils")
+    local original_info, message = utils.info, nil
+    utils.info = function(msg)
+      message = msg
+    end
+    -- Entries are appended at the older end, so the newest commit is in place
+    -- from the start and nothing newer can still be on its way.
+    view.panel.updating = true
+
+    view:select_change_here(-1)
+
+    local got = vim.wait(10000, function()
+      return message ~= nil
+    end)
+    utils.info = original_info
+    view.panel.updating = false
+
+    assert.is_true(got, "the walk never reported anything")
+    assert.is_falsy(message:match("still loading"))
+    eq("body 12", line_at(main))
+  end)
+
   it("gives up when the view loses its tabpage", function()
     -- Nothing older changes `body 12`, so a walk that runs to the end would
     -- report that; giving up early reports nothing.
