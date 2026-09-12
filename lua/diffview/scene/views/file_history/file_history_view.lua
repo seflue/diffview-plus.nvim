@@ -301,6 +301,14 @@ FileHistoryView.select_change_here = async.void(function(self, dir)
 
       local err, next_lines = await(file.adapter:show(file.path, file.rev))
 
+      -- The read yielded, and the view may have closed or lost its tabpage in
+      -- the meantime. `show` resumes us in a fast event context, where that
+      -- cannot be asked.
+      await(async.scheduler())
+      if self:swap_cancelled() then
+        return
+      end
+
       if err or not next_lines then
         found = candidate
         break
@@ -353,10 +361,6 @@ FileHistoryView.select_change_here = async.void(function(self, dir)
       prev = candidate
     end
   end
-
-  -- `adapter:show` resumes us in its job's `on_exit`, which is a fast event
-  -- context. Everything below touches the API.
-  await(async.scheduler())
 
   -- Nothing ahead changes this line, so the reader stays where they are rather
   -- than being dropped at the far end of the history.

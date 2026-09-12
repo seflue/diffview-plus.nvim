@@ -43,6 +43,10 @@ end
 ---@field package _set_file_pending FileEntry? # Newest file queued while `_set_file_in_flight` is set; the worker picks it up before terminating.
 local StandardView = oop.create_class("StandardView", View.__get())
 
+---Exposed for the file-history walk, whose reads yield the same way the
+---swap does and must stop for the same reasons.
+StandardView.swap_cancelled = swap_cancelled
+
 ---The key the arriving entry will look its state up under, when a rename links
 ---it to the entry being left. `--follow` lists a file under its old name in
 ---every commit older than the rename, so a step across that commit leaves one

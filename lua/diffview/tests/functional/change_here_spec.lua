@@ -195,6 +195,30 @@ describe("select_change_here", function()
     eq("body 12", line_at(main))
   end)
 
+  it("gives up when the view loses its tabpage", function()
+    -- Nothing older changes `body 12`, so a walk that runs to the end would
+    -- report that; giving up early reports nothing.
+    open_on("body 12")
+    local utils = require("diffview.utils")
+    local original_info, message = utils.info, nil
+    utils.info = function(msg)
+      message = msg
+    end
+    -- The walk yields on every read, and a view whose tabpage is no longer
+    -- current must not move the cursor or report anything when it resumes.
+    vim.cmd("tabnew")
+
+    view:select_change_here(1)
+    vim.wait(2000, function()
+      return message ~= nil or view.panel.cur_item[1] ~= view.panel.entries[1]
+    end)
+    utils.info = original_info
+    vim.cmd("tabclose")
+
+    eq(nil, message)
+    eq(view.panel.entries[1], view.panel.cur_item[1])
+  end)
+
   it("runs the walk through the registered action", function()
     open_on("body 5 rewritten")
 
